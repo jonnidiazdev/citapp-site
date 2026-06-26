@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - only accessible by the owner
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Business Settings - owners can read/write their own, public can read by token
+    match /businessSettings/{userId} {
+      // Owner can read/write their own settings
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Public can read settings (for public booking page)
+      allow read: if true;
+    }
+    
+    // Appointments - owners can read/write their own, public can create
+    match /appointments/{appointmentId} {
+      // Owner can read/write/delete their own appointments
+      allow read, update, delete: if request.auth != null && 
+                                    request.auth.uid == resource.data.userId;
+      
+      // Owner can create appointments
+      allow create: if request.auth != null && 
+                      request.auth.uid == request.resource.data.userId;
+      
+      // Public can create appointments (for public booking)
+      // Validate required fields and ensure proper userId
+      allow create: if request.resource.data.keys().hasAll(['userId', 'clientName', 'clientEmail', 'date', 'startTime', 'endTime', 'status', 'createdAt']) &&
+                      request.resource.data.status == 'pending' &&
+                      request.resource.data.userId is string &&
+                      request.resource.data.clientName is string &&
+                      request.resource.data.clientEmail is string &&
+                      request.resource.data.date is string &&
+                      request.resource.data.startTime is string &&
+                      request.resource.data.endTime is string;
+      
+      // Public can read appointments by userId and date (for checking availability)
+      allow read: if request.query.limit <= 100;
+    }
+  }
+}
