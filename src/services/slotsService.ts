@@ -1,5 +1,10 @@
 import { format, addMinutes, parse, isAfter, isBefore, isEqual, isSameDay } from 'date-fns';
-import type { BusinessSettings, Appointment, BookingTimeSlot } from '../types';
+import type {
+  Appointment,
+  BookingTimeSlot,
+  OccupiedSlot,
+  SlotGenerationSettings,
+} from '../types';
 
 export type { BookingTimeSlot as TimeSlot };
 
@@ -8,11 +13,13 @@ export interface GenerateDaySlotsOptions {
   blockPastSlots?: boolean;
 }
 
+type OccupancyInput = OccupiedSlot[] | Appointment[];
+
 class SlotsService {
   generateDaySlots(
     date: Date,
-    settings: BusinessSettings,
-    existingAppointments: Appointment[],
+    settings: SlotGenerationSettings,
+    occupied: OccupancyInput,
     options?: GenerateDaySlotsOptions
   ): BookingTimeSlot[] {
     const dayName = this.getDayName(date);
@@ -23,14 +30,9 @@ class SlotsService {
     }
 
     const dateStr = format(date, 'yyyy-MM-dd');
-    const activeAppointments = existingAppointments.filter(
-      (apt) =>
-        apt.date === dateStr &&
-        apt.status !== 'cancelled' &&
-        apt.status !== 'absent'
-    );
+    const normalizedOccupied = this.normalizeOccupied(dateStr, occupied);
 
-    if (activeAppointments.length >= settings.dailySessionLimit) {
+    if (normalizedOccupied.length >= settings.dailySessionLimit) {
       return [];
     }
 
@@ -46,14 +48,9 @@ class SlotsService {
         break;
       }
 
-      const isOccupied = existingAppointments.some((apt) => {
-        if (apt.status === 'cancelled' || apt.status === 'absent') {
-          return false;
-        }
-        if (apt.date !== dateStr) return false;
-
-        const aptStart = parse(apt.startTime, 'HH:mm', date);
-        const aptEnd = parse(apt.endTime, 'HH:mm', date);
+      const isOccupied = normalizedOccupied.some((slot) => {
+        const aptStart = parse(slot.startTime, 'HH:mm', date);
+        const aptEnd = parse(slot.endTime, 'HH:mm', date);
 
         return (
           ((isAfter(currentTime, aptStart) || isEqual(currentTime, aptStart)) &&
@@ -90,14 +87,32 @@ class SlotsService {
   isSlotAvailable(
     date: string,
     time: string,
-    settings: BusinessSettings,
-    existingAppointments: Appointment[],
+    settings: SlotGenerationSettings,
+    occupied: OccupancyInput,
     options?: GenerateDaySlotsOptions
   ): boolean {
     const dateObj = parse(date, 'yyyy-MM-dd', new Date());
-    const slots = this.generateDaySlots(dateObj, settings, existingAppointments, options);
+    const slots = this.generateDaySlots(dateObj, settings, occupied, options);
     const slot = slots.find((s) => s.time === time);
     return slot ? slot.available : false;
+  }
+
+  private normalizeOccupied(dateStr: string, occupied: OccupancyInput): OccupiedSlot[] {
+    if (occupied.length === 0) {
+      return [];
+    }
+
+    const first = occupied[0];
+    if ('status' in first) {
+      return (occupied as Appointment[])
+        .filter(
+          (apt) =>
+            apt.date === dateStr && apt.status !== 'cancelled' && apt.status !== 'absent'
+        )
+        .map((apt) => ({ startTime: apt.startTime, endTime: apt.endTime }));
+    }
+
+    return occupied as OccupiedSlot[];
   }
 
   private getDayName(date: Date): string {

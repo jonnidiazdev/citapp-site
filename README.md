@@ -6,7 +6,7 @@ CitApp es una aplicación web moderna construida con React y TypeScript que perm
 
 - **Autenticación**: Login y registro para dueños de negocio
 - **Gestión de turnos**: Panel admin con calendario, edición y carga manual
-- **Reservas públicas**: Link `/booking/:userId` sin cuenta del cliente
+- **Reservas públicas**: Link `/booking/:token` sin cuenta del cliente
 - **Dashboard**: Estadísticas de turnos pendientes, completados y del día
 - **Horarios**: Configuración de días, duración, recesos y límite diario
 - **Responsive**: Compatible con móvil y escritorio
@@ -57,7 +57,7 @@ SPA con React Router. Vercel sirve el build estático de `dist/`; Firebase corre
 | Output Directory | `dist` |
 | Install Command | `npm install` |
 
-[`vercel.json`](vercel.json) ya incluye rewrites para que rutas como `/booking/:userId` y `/admin/dashboard` no devuelvan 404 al refrescar.
+[`vercel.json`](vercel.json) ya incluye rewrites para que rutas como `/booking/:token` y `/admin/dashboard` no devuelvan 404 al refrescar.
 
 ### 3. Variables de entorno
 
@@ -70,9 +70,10 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
+VITE_ALLOW_REGISTRATION=false
 ```
 
-Mismos valores que en `.env.local`. Sin ellas el build puede pasar pero la app falla en runtime.
+Mismos valores Firebase que en `.env.local`. En producción, `VITE_ALLOW_REGISTRATION=false` oculta el registro público.
 
 ### 4. Firebase (obligatorio post-deploy)
 
@@ -80,7 +81,15 @@ Mismos valores que en `.env.local`. Sin ellas el build puede pasar pero la app f
    Agregar `tu-proyecto.vercel.app` y dominio custom si aplica.
 
 2. **Firestore → Rules**  
-   Publicar reglas de [`firestore.rules`](firestore.rules) (booking público incluido). Ver también [`BOOKING_SYSTEM.md`](BOOKING_SYSTEM.md).
+   Publicar reglas de [`firestore.rules`](firestore.rules). Ver [`BOOKING_SYSTEM.md`](BOOKING_SYSTEM.md).
+
+3. **Authentication → Sign-in method**  
+   Tras crear el primer admin, deshabilitar **Email/Password sign-up** en Firebase Console.
+
+4. **Google Cloud Console → API key restrictions**  
+   Restringir la API key de Firebase por dominio (localhost + dominio Vercel).
+
+5. **(Recomendado) Firebase App Check** para la app web.
 
 ### 5. Verificación en prod
 
@@ -99,6 +108,7 @@ Vercel Hobby permite **hasta 200 proyectos** por cuenta. Uso personal/side proje
 - [`FIREBASE_SETUP.md`](FIREBASE_SETUP.md) — Firebase inicial
 - [`BOOKING_SYSTEM.md`](BOOKING_SYSTEM.md) — Reservas públicas y reglas
 - [`QUICKSTART.md`](QUICKSTART.md) — Guía rápida local
+- [`.agents/skills/`](.agents/skills/) — UI Skills (diseño, a11y, baseline)
 
 ## Licencia
 

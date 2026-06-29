@@ -1,5 +1,6 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
 import { FiX } from 'react-icons/fi';
+import { useDialogA11y } from '../../hooks/useDialogA11y';
 
 interface ModalProps {
   isOpen: boolean;
@@ -12,18 +13,15 @@ interface ModalProps {
 
 export function Modal({ isOpen, title, onClose, children, footer, disabled = false }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !disabled) onClose();
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    dialogRef.current?.focus();
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, disabled]);
+  useDialogA11y({
+    isOpen,
+    containerRef: dialogRef,
+    onClose,
+    closeOnEscape: !disabled,
+    enabled: !disabled,
+  });
 
   if (!isOpen) return null;
 
@@ -40,12 +38,12 @@ export function Modal({ isOpen, title, onClose, children, footer, disabled = fal
         className="modal-content"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 id="modal-title">{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button
             type="button"
             className="modal-close"

@@ -30,27 +30,10 @@ Este proyecto usa Firebase para autenticación y base de datos en tiempo real (F
 ### 4. Establecer Reglas de Seguridad
 
 1. En Firestore, ve a la pestaña **Rules**
-2. Reemplaza con las siguientes reglas:
-
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users collection
-    match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
-    }
-    
-    // Appointments collection
-    match /appointments/{appointmentId} {
-      allow read, write: if request.auth.uid == resource.data.userId;
-      allow create: if request.auth.uid == request.resource.data.userId;
-    }
-  }
-}
-```
-
+2. Copia el contenido de [`firestore.rules`](firestore.rules) del repositorio
 3. Haz clic en **Publish**
+
+Las reglas protegen `businessSettings` y `appointments` (solo owner). El booking público usa colecciones `publicProfiles` y `bookingSlots` sin PII de clientes.
 
 ### 5. Obtener Credenciales de Firebase
 
@@ -85,7 +68,10 @@ VITE_FIREBASE_PROJECT_ID=citapp-xxx
 VITE_FIREBASE_STORAGE_BUCKET=citapp-xxx.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
 VITE_FIREBASE_APP_ID=1:123456789:web:abcdef...
+VITE_ALLOW_REGISTRATION=true
 ```
+
+En producción (Vercel), usar `VITE_ALLOW_REGISTRATION=false` y deshabilitar sign-up en Firebase Console tras crear el primer admin.
 
 ### 7. Iniciar la Aplicación
 
@@ -161,10 +147,12 @@ En el dashboard puedes:
 
 ## Seguridad
 
-⚠️ **Importante:**
-- Las credenciales de Firebase son públicas (se envían al cliente)
-- Las reglas de seguridad de Firestore protegen los datos
-- Nunca compartas tu `projectId` en repositorios públicos
+- Las credenciales Firebase (`VITE_FIREBASE_*`) son públicas en el bundle del cliente — es el modelo normal de Firebase web.
+- Las reglas de Firestore protegen los datos sensibles.
+- Restringí la API key por dominio en Google Cloud Console.
+- En producción: `VITE_ALLOW_REGISTRATION=false` + deshabilitar sign-up en Firebase Authentication.
+- Considerá Firebase App Check para mitigar abuso de la API.
+- No commitees `.env.local` ni service account JSON.
 
 ## Próximos Pasos
 

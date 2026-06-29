@@ -39,6 +39,14 @@ describe('slotsService', () => {
     expect(slots).toEqual([]);
   });
 
+  it('marks occupied slots unavailable with OccupiedSlot input', () => {
+    const date = parse('2026-06-01', 'yyyy-MM-dd', new Date());
+    const occupied = [{ startTime: '09:00', endTime: '09:30' }];
+    const slots = slotsService.generateDaySlots(date, baseSettings, occupied);
+    const nineSlot = slots.find((s) => s.time === '09:00');
+    expect(nineSlot?.available).toBe(false);
+  });
+
   it('marks occupied slots unavailable', () => {
     const date = parse('2026-06-01', 'yyyy-MM-dd', new Date());
     const appointments: Appointment[] = [

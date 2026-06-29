@@ -1,5 +1,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { publicProfileService } from './publicProfileService';
+import { generateSecureToken } from '../utils/token';
 import type { BusinessSettings, DayWorkingHours } from '../types';
 
 class BusinessSettingsService {
@@ -12,15 +14,27 @@ class BusinessSettingsService {
     const docRef = doc(db, this.collectionName, user.uid);
     const docSnap = await getDoc(docRef);
 
-    if (docSnap.exists()) {
-      const data = docSnap.data() as BusinessSettings;
-      return {
-        ...data,
-        allowHolidayAppointments: data.allowHolidayAppointments ?? true,
-      };
+    if (!docSnap.exists()) {
+      return null;
     }
 
-    return null;
+    const data = docSnap.data() as BusinessSettings;
+    const normalized = this.normalizeSettings(data);
+
+    const needsTokenBackfill = !data.publicBookingToken;
+    const needsEnabledBackfill = data.publicBookingEnabled === undefined;
+    const profileExists = await this.checkPublicProfileExists(normalized.publicBookingToken);
+
+    if (needsTokenBackfill || needsEnabledBackfill || !profileExists) {
+      const cleanSettings = this.removeUndefinedFields({
+        ...normalized,
+        updatedAt: new Date().toISOString(),
+      });
+      await setDoc(docRef, cleanSettings);
+      await publicProfileService.syncFromSettings(normalized);
+    }
+
+    return normalized;
   }
 
   async saveSettings(settings: Partial<BusinessSettings>): Promise<BusinessSettings> {
@@ -46,7 +60,7 @@ class BusinessSettingsService {
         ),
       allowHolidayAppointments:
         settings.allowHolidayAppointments ?? existingSettings?.allowHolidayAppointments ?? true,
-      publicBookingToken: existingSettings?.publicBookingToken || this.generateToken(),
+      publicBookingToken: existingSettings?.publicBookingToken || generateSecureToken(),
       publicBookingEnabled: settings.publicBookingEnabled ?? existingSettings?.publicBookingEnabled ?? true,
       createdAt: existingSettings?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -54,31 +68,36 @@ class BusinessSettingsService {
 
     const cleanSettings = this.removeUndefinedFields(updatedSettings);
     await setDoc(doc(db, this.collectionName, user.uid), cleanSettings);
+    await publicProfileService.syncFromSettings(updatedSettings);
     return updatedSettings;
   }
 
-  async getSettingsByUserId(userId: string): Promise<BusinessSettings | null> {
-    const docRef = doc(db, this.collectionName, userId);
-    const docSnap = await getDoc(docRef);
+  getPublicBookingUrl(token: string): string {
+    return `${window.location.origin}/booking/${token}`;
+  }
 
-    if (docSnap.exists()) {
-      const data = docSnap.data() as BusinessSettings;
-      return {
-        ...data,
-        allowHolidayAppointments: data.allowHolidayAppointments ?? true,
-      };
+  private async checkPublicProfileExists(token: string): Promise<boolean> {
+    try {
+      return await publicProfileService.exists(token);
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code: string }).code)
+          : '';
+      if (code === 'permission-denied') {
+        return false;
+      }
+      throw error;
     }
-
-    return null;
   }
 
-  /** @deprecated Use getSettingsByUserId */
-  async getSettingsByToken(token: string): Promise<BusinessSettings | null> {
-    return this.getSettingsByUserId(token);
-  }
-
-  getPublicBookingUrl(userId: string): string {
-    return `${window.location.origin}/booking/${userId}`;
+  private normalizeSettings(data: BusinessSettings): BusinessSettings {
+    return {
+      ...data,
+      allowHolidayAppointments: data.allowHolidayAppointments ?? true,
+      publicBookingEnabled: data.publicBookingEnabled ?? true,
+      publicBookingToken: data.publicBookingToken || generateSecureToken(),
+    };
   }
 
   private removeUndefinedFields(obj: BusinessSettings): BusinessSettings {
@@ -104,10 +123,6 @@ class BusinessSettingsService {
     });
 
     return workingHours;
-  }
-
-  private generateToken(): string {
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   }
 
   private calculateMaxDailySessions(

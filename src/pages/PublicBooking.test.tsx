@@ -5,20 +5,26 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { format } from 'date-fns';
 import { PublicBooking } from '../pages/PublicBooking';
 import { ToastProvider } from '../components/ui/ToastProvider';
-import { businessSettingsService } from '../services/businessSettingsService';
+import { publicProfileService } from '../services/publicProfileService';
 import { appointmentService } from '../services/appointmentService';
+import { bookingSlotsService } from '../services/bookingSlotsService';
 import { slotsService } from '../services/slotsService';
 
-vi.mock('../services/businessSettingsService', () => ({
-  businessSettingsService: {
-    getSettingsByUserId: vi.fn(),
+vi.mock('../services/publicProfileService', () => ({
+  publicProfileService: {
+    getByToken: vi.fn(),
   },
 }));
 
 vi.mock('../services/appointmentService', () => ({
   appointmentService: {
-    getAppointmentsByUserAndDate: vi.fn(),
     createPublicAppointment: vi.fn(),
+  },
+}));
+
+vi.mock('../services/bookingSlotsService', () => ({
+  bookingSlotsService: {
+    getOccupiedSlots: vi.fn(),
   },
 }));
 
@@ -28,7 +34,7 @@ vi.mock('../services/holidayService', () => ({
   },
 }));
 
-const mockSettings = {
+const mockProfile = {
   userId: 'user1',
   businessName: 'Test Salon',
   workingHours: {
@@ -44,18 +50,15 @@ const mockSettings = {
   breakTime: 0,
   dailySessionLimit: 10,
   allowHolidayAppointments: true,
-  publicBookingToken: 'token',
   publicBookingEnabled: true,
-  createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
 };
 
 function renderPublicBooking() {
   return render(
     <ToastProvider>
-      <MemoryRouter initialEntries={['/booking/user1']}>
+      <MemoryRouter initialEntries={['/booking/token1']}>
         <Routes>
-          <Route path="/booking/:userId" element={<PublicBooking />} />
+          <Route path="/booking/:token" element={<PublicBooking />} />
         </Routes>
       </MemoryRouter>
     </ToastProvider>
@@ -69,8 +72,8 @@ describe('PublicBooking', () => {
       { time: '09:00', available: true, date: format(new Date(), 'yyyy-MM-dd') },
     ]);
     vi.spyOn(slotsService, 'isSlotAvailable').mockReturnValue(true);
-    vi.mocked(businessSettingsService.getSettingsByUserId).mockResolvedValue(mockSettings);
-    vi.mocked(appointmentService.getAppointmentsByUserAndDate).mockResolvedValue([]);
+    vi.mocked(publicProfileService.getByToken).mockResolvedValue(mockProfile);
+    vi.mocked(bookingSlotsService.getOccupiedSlots).mockResolvedValue([]);
     vi.mocked(appointmentService.createPublicAppointment).mockResolvedValue({
       id: 'new1',
       userId: 'user1',
@@ -88,10 +91,47 @@ describe('PublicBooking', () => {
     vi.restoreAllMocks();
   });
 
-  it('loads business settings via service', async () => {
+  it('loads public profile via token', async () => {
     renderPublicBooking();
     await waitFor(() => expect(screen.getByText('Test Salon')).toBeInTheDocument());
-    expect(businessSettingsService.getSettingsByUserId).toHaveBeenCalledWith('user1');
+    expect(publicProfileService.getByToken).toHaveBeenCalledWith('token1');
+  });
+
+  it('shows a single inline message when profile is missing', async () => {
+    vi.mocked(publicProfileService.getByToken).mockResolvedValue(null);
+
+    renderPublicBooking();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Este link de reservas no está disponible. Pedile al negocio un link actualizado.'
+      );
+    });
+    expect(screen.queryByText('No se encontró la información del negocio')).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct inline message when loading fails', async () => {
+    vi.mocked(publicProfileService.getByToken).mockRejectedValue(new Error('permission-denied'));
+
+    renderPublicBooking();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'No se pudo cargar la información del negocio. Intentá de nuevo en unos minutos.'
+      );
+    });
+  });
+
+  it('loads profile when publicBookingEnabled is missing in stored data', async () => {
+    const { publicBookingEnabled: _enabled, ...profileWithoutFlag } = mockProfile;
+    vi.mocked(publicProfileService.getByToken).mockResolvedValue({
+      ...profileWithoutFlag,
+      publicBookingEnabled: true,
+    });
+
+    renderPublicBooking();
+
+    await waitFor(() => expect(screen.getByText('Test Salon')).toBeInTheDocument());
   });
 
   it('submits booking via appointmentService not direct Firestore', async () => {
@@ -100,7 +140,7 @@ describe('PublicBooking', () => {
 
     await waitFor(() => expect(screen.getByText('Test Salon')).toBeInTheDocument());
 
-    const timeButtons = await screen.findAllByRole('button', { name: /^09:00$/ });
+    const timeButtons = await screen.findAllByRole('button', { name: /Horario 09:00/i });
     const availableButton = timeButtons.find(
       (btn) => !(btn as HTMLButtonElement).disabled
     );

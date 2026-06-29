@@ -80,6 +80,9 @@ export function AdminCalendar({
               type="button"
               className={`calendar-day ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''} ${dayAppointments.length > 0 ? 'has-appointments' : ''} ${isHolidayDay ? 'holiday' : ''}`}
               onClick={() => onDateSelect(dateStr)}
+              aria-label={`${format(day, "EEEE d 'de' MMMM", { locale: es })}${dayAppointments.length > 0 ? `, ${dayAppointments.length} turnos` : ', sin turnos'}`}
+              aria-pressed={isSelected}
+              aria-current={isToday && !isSelected ? 'date' : undefined}
             >
               <div className="day-number">{format(day, 'd')}</div>
               {dayAppointments.length > 0 && (

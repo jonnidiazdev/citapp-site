@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState, useActionState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useFormStatus } from 'react-dom';
 import { format, addDays, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { businessSettingsService } from '../services/businessSettingsService';
+import { publicProfileService } from '../services/publicProfileService';
 import { appointmentService } from '../services/appointmentService';
+import { bookingSlotsService } from '../services/bookingSlotsService';
 import { slotsService } from '../services/slotsService';
 import { holidayService } from '../services/holidayService';
 import { useToast } from '../components/ui/useToast';
-import type { BusinessSettings, BookingTimeSlot } from '../types';
+import type { PublicBusinessProfile, BookingTimeSlot } from '../types';
 import '../styles/booking.css';
 
 interface BookingFormState {
   error?: string;
   success?: boolean;
 }
+
+type LoadState = 'loading' | 'ready' | 'not_found' | 'error';
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -26,42 +29,43 @@ function SubmitButton() {
 }
 
 export function PublicBooking() {
-  const { userId } = useParams<{ userId: string }>();
-  const navigate = useNavigate();
+  const { token } = useParams<{ token: string }>();
   const { showToast } = useToast();
 
-  const [settings, setSettings] = useState<BusinessSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<PublicBusinessProfile | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>('loading');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [availableSlots, setAvailableSlots] = useState<BookingTimeSlot[]>([]);
   const [holidayBlockedMessage, setHolidayBlockedMessage] = useState('');
 
   const loadBusinessData = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setLoading(true);
-      const data = await businessSettingsService.getSettingsByUserId(userId);
+    if (!token) {
+      setLoadState('not_found');
+      return;
+    }
 
-      if (!data || !data.publicBookingEnabled) {
-        showToast('Este link de reservas no está disponible', 'error');
-        navigate('/');
+    try {
+      setLoadState('loading');
+      const data = await publicProfileService.getByToken(token);
+
+      if (!data) {
+        setLoadState('not_found');
         return;
       }
 
-      setSettings(data);
+      setProfile(data);
+      setLoadState('ready');
     } catch {
-      showToast('Error al cargar la información del negocio', 'error');
-    } finally {
-      setLoading(false);
+      setLoadState('error');
     }
-  }, [userId, navigate, showToast]);
+  }, [token]);
 
-  const loadAppointmentsForDate = useCallback(async () => {
-    if (!userId || !settings) return;
+  const loadSlotsForDate = useCallback(async () => {
+    if (!profile) return;
 
     try {
-      if (!settings.allowHolidayAppointments) {
+      if (!profile.allowHolidayAppointments) {
         const holiday = await holidayService.getHolidayByDate(selectedDate);
         if (holiday) {
           setAvailableSlots([]);
@@ -71,10 +75,10 @@ export function PublicBooking() {
       }
 
       setHolidayBlockedMessage('');
-      const apts = await appointmentService.getAppointmentsByUserAndDate(userId, selectedDate);
+      const occupied = await bookingSlotsService.getOccupiedSlots(profile.userId, selectedDate);
       const dateObj = parse(selectedDate, 'yyyy-MM-dd', new Date());
       const slotOptions = { now: new Date(), blockPastSlots: true as const };
-      const slots = slotsService.generateDaySlots(dateObj, settings, apts, slotOptions);
+      const slots = slotsService.generateDaySlots(dateObj, profile, occupied, slotOptions);
       setAvailableSlots(slots);
       setSelectedTime((current) => {
         if (!current) return null;
@@ -84,19 +88,19 @@ export function PublicBooking() {
     } catch {
       showToast('Error al cargar horarios disponibles', 'error');
     }
-  }, [userId, settings, selectedDate, showToast]);
+  }, [profile, selectedDate, showToast]);
 
   useEffect(() => {
     loadBusinessData();
   }, [loadBusinessData]);
 
   useEffect(() => {
-    loadAppointmentsForDate();
-  }, [loadAppointmentsForDate]);
+    loadSlotsForDate();
+  }, [loadSlotsForDate]);
 
   const [formState, formAction] = useActionState(
     async (_prev: BookingFormState | null, formData: FormData): Promise<BookingFormState> => {
-      const bookingUserId = userId;
+      const bookingUserId = formData.get('userId') as string;
       const bookingDate = formData.get('selectedDate') as string;
       const bookingTime = formData.get('selectedTime') as string;
       const appointmentDuration = Number(formData.get('appointmentDuration'));
@@ -105,11 +109,11 @@ export function PublicBooking() {
         return { error: 'Por favor selecciona un horario' };
       }
 
-      if (!settings) {
+      if (!profile) {
         return { error: 'No se pudo cargar la configuración del negocio' };
       }
 
-      if (!settings.allowHolidayAppointments) {
+      if (!profile.allowHolidayAppointments) {
         const holiday = await holidayService.getHolidayByDate(bookingDate);
         if (holiday) {
           return { error: `No se pueden reservar turnos en este día: ${holiday.nombre} (${holiday.tipo}).` };
@@ -120,15 +124,12 @@ export function PublicBooking() {
       const notes = (formData.get('notes') as string)?.trim();
 
       const slotOptions = { now: new Date(), blockPastSlots: true as const };
-      const dayAppointments = await appointmentService.getAppointmentsByUserAndDate(
-        bookingUserId,
-        bookingDate
-      );
+      const occupied = await bookingSlotsService.getOccupiedSlots(bookingUserId, bookingDate);
       const slotStillValid = slotsService.isSlotAvailable(
         bookingDate,
         bookingTime,
-        settings,
-        dayAppointments,
+        profile,
+        occupied,
         slotOptions
       );
       if (!slotStillValid) {
@@ -153,7 +154,7 @@ export function PublicBooking() {
         showToast('¡Turno reservado exitosamente!', 'success');
 
         try {
-          await loadAppointmentsForDate();
+          await loadSlotsForDate();
         } catch (refreshError) {
           console.error('Error refreshing slots after booking:', refreshError);
         }
@@ -172,20 +173,38 @@ export function PublicBooking() {
     return Array.from({ length: 7 }, (_, i) => addDays(today, i));
   };
 
-  if (loading) {
+  if (loadState === 'loading') {
     return (
       <div className="booking-container">
-        <div className="booking-loading">Cargando...</div>
+        <div className="booking-loading" role="status" aria-live="polite">
+          Cargando...
+        </div>
       </div>
     );
   }
 
-  if (!settings) {
+  if (loadState === 'not_found') {
     return (
       <div className="booking-container">
-        <div className="booking-error">No se encontró la información del negocio</div>
+        <div className="booking-error" role="alert">
+          Este link de reservas no está disponible. Pedile al negocio un link actualizado.
+        </div>
       </div>
     );
+  }
+
+  if (loadState === 'error') {
+    return (
+      <div className="booking-container">
+        <div className="booking-error" role="alert">
+          No se pudo cargar la información del negocio. Intentá de nuevo en unos minutos.
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return null;
   }
 
   const weekDays = getNextWeekDays();
@@ -193,23 +212,26 @@ export function PublicBooking() {
   return (
     <div className="booking-container">
       <div className="booking-header">
-        <h1>{settings.businessName}</h1>
-        {settings.businessDescription && (
-          <p className="business-description">{settings.businessDescription}</p>
+        <h1>{profile.businessName}</h1>
+        {profile.businessDescription && (
+          <p className="business-description">{profile.businessDescription}</p>
         )}
       </div>
 
       <div className="booking-content">
-        <div className="date-selector">
-          <h2>Selecciona una fecha</h2>
+        <div className="date-selector" aria-labelledby="date-selector-heading">
+          <h2 id="date-selector-heading">Selecciona una fecha</h2>
           <div className="date-grid">
             {weekDays.map((day) => {
               const dateStr = format(day, 'yyyy-MM-dd');
+              const dateLabel = format(day, "EEEE d 'de' MMMM", { locale: es });
               return (
                 <button
                   key={dateStr}
                   type="button"
                   className={`date-card ${selectedDate === dateStr ? 'selected' : ''}`}
+                  aria-label={dateLabel}
+                  aria-pressed={selectedDate === dateStr}
                   onClick={() => {
                     setSelectedDate(dateStr);
                     setSelectedTime(null);
@@ -224,13 +246,13 @@ export function PublicBooking() {
           </div>
         </div>
 
-        <div className="time-selector">
-          <h2>
+        <div className="time-selector" aria-labelledby="time-selector-heading">
+          <h2 id="time-selector-heading">
             Horarios disponibles -{' '}
             {format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'd MMMM', { locale: es })}
           </h2>
           {availableSlots.length === 0 ? (
-            <p className="no-slots">
+            <p className="no-slots" role="status">
               {holidayBlockedMessage || 'No hay horarios disponibles para este día'}
             </p>
           ) : (
@@ -240,6 +262,9 @@ export function PublicBooking() {
                   key={slot.time}
                   type="button"
                   className={`time-slot ${selectedTime === slot.time ? 'selected' : ''} ${!slot.available ? 'unavailable' : ''}`}
+                  aria-label={`Horario ${slot.time}`}
+                  aria-pressed={selectedTime === slot.time}
+                  aria-disabled={!slot.available}
                   onClick={() => slot.available && setSelectedTime(slot.time)}
                   disabled={!slot.available}
                 >
@@ -251,12 +276,13 @@ export function PublicBooking() {
         </div>
 
         {selectedTime && !holidayBlockedMessage && (
-          <div className="booking-form-section">
-            <h2>Completa tus datos</h2>
+          <div className="booking-form-section" aria-labelledby="booking-form-heading">
+            <h2 id="booking-form-heading">Completa tus datos</h2>
             <form action={formAction} className="booking-form">
+              <input type="hidden" name="userId" value={profile.userId} />
               <input type="hidden" name="selectedDate" value={selectedDate} />
               <input type="hidden" name="selectedTime" value={selectedTime} />
-              <input type="hidden" name="appointmentDuration" value={settings.appointmentDuration} />
+              <input type="hidden" name="appointmentDuration" value={profile.appointmentDuration} />
               {formState?.error && (
                 <p className="form-error" role="alert">
                   {formState.error}
@@ -293,7 +319,7 @@ export function PublicBooking() {
                   <strong>Hora:</strong> {selectedTime}
                 </p>
                 <p>
-                  <strong>Duración:</strong> {settings.appointmentDuration} minutos
+                  <strong>Duración:</strong> {profile.appointmentDuration} minutos
                 </p>
               </div>
               <SubmitButton />

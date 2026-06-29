@@ -49,31 +49,45 @@ Para que el sistema de reservas públicas funcione correctamente, debes actualiz
 
 Las reglas permiten:
 - ✅ Los usuarios autenticados pueden leer/escribir sus propios datos
-- ✅ El público puede leer configuraciones de negocio (para mostrar horarios)
+- ✅ El público puede leer `publicProfiles` (solo config del negocio, sin PII)
+- ✅ El público puede leer `bookingSlots` (solo horarios ocupados, sin datos de clientes)
 - ✅ El público puede crear citas (con validación de campos requeridos)
-- ✅ El público puede leer citas para verificar disponibilidad
+- ❌ El público NO puede leer citas completas ni `businessSettings`
 - ❌ El público NO puede modificar o eliminar citas existentes
+
+> **Breaking change:** La URL pública usa `/booking/:token` (token opaco). Links antiguos con Firebase UID dejan de funcionar. Guardá settings y recompartí el nuevo link.
 
 ### Estructura de Datos
 
-#### BusinessSettings (Firestore Collection)
+#### BusinessSettings (privado — solo owner)
+
+Almacena la configuración completa del negocio. Solo accesible por el admin autenticado.
+
+#### publicProfiles (público — lectura por token)
+
+Proyección pública sincronizada al guardar settings. El ID del documento es `publicBookingToken`:
 
 ```typescript
 {
-  userId: string,                    // ID del usuario propietario
-  businessName: string,              // Nombre del negocio
-  businessDescription?: string,      // Descripción opcional
-  appointmentDuration: number,       // Duración en minutos (15-120)
-  breakTime: number,                 // Receso entre turnos (0-30)
-  publicBookingEnabled: boolean,     // Si está habilitado el booking público
-  publicBookingToken: string,        // Token único para URL pública
-  workingHours: {                    // Horarios por día
-    monday: { enabled: boolean, start: string, end: string },
-    tuesday: { enabled: boolean, start: string, end: string },
-    // ... resto de días
-  },
-  createdAt: string,
-  updatedAt: string
+  userId: string,
+  businessName: string,
+  businessDescription?: string,
+  appointmentDuration: number,
+  breakTime: number,
+  dailySessionLimit: number,
+  allowHolidayAppointments: boolean,
+  publicBookingEnabled: boolean,
+  workingHours: { /* ... */ }
+}
+```
+
+#### bookingSlots (público — solo horarios)
+
+`bookingSlots/{userId}/days/{date}`:
+
+```typescript
+{
+  occupied: [{ startTime: string, endTime: string }]
 }
 ```
 

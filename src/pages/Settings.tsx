@@ -1,7 +1,6 @@
 import { useState, useActionState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFormStatus } from 'react-dom';
-import { useAuthStore } from '../store/authStore';
 import { businessSettingsService } from '../services/businessSettingsService';
 import { useBusinessSettings } from '../hooks/useBusinessSettings';
 import { useToast } from '../components/ui/useToast';
@@ -30,10 +29,23 @@ function SaveButton() {
 
 export function Settings() {
   const navigate = useNavigate();
-  const user = useAuthStore((state) => state.user);
   const { showToast } = useToast();
-  const { settings, setSettings, loading, save } = useBusinessSettings();
+  const { settings, setSettings, loading, error, load, save } = useBusinessSettings();
   const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateInitialSettings = async () => {
+    setCreating(true);
+    try {
+      await businessSettingsService.saveSettings({});
+      await load();
+      showToast('Configuración creada exitosamente', 'success');
+    } catch {
+      showToast('Error al crear la configuración. Verificá las reglas de Firestore.', 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const [, saveAction] = useActionState(async () => {
     if (!settings) return { error: 'No hay configuración' };
@@ -63,8 +75,8 @@ export function Settings() {
   };
 
   const copyBookingUrl = () => {
-    if (!user) return;
-    const url = businessSettingsService.getPublicBookingUrl(user.id);
+    if (!settings) return;
+    const url = businessSettingsService.getPublicBookingUrl(settings.publicBookingToken);
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -83,18 +95,27 @@ export function Settings() {
     return (
       <div className="settings-container">
         <h1>Configuración de Negocio</h1>
+        {error && (
+          <div className="error-message" role="alert">
+            {error}
+          </div>
+        )}
         <button
           type="button"
           className="button"
-          onClick={() => businessSettingsService.saveSettings({}).then(() => window.location.reload())}
+          onClick={handleCreateInitialSettings}
+          disabled={creating}
+          aria-busy={creating}
         >
-          Crear Configuración Inicial
+          {creating ? 'Creando...' : 'Crear Configuración Inicial'}
         </button>
       </div>
     );
   }
 
-  const bookingUrl = user ? businessSettingsService.getPublicBookingUrl(user.id) : '';
+  const bookingUrl = settings.publicBookingEnabled
+    ? businessSettingsService.getPublicBookingUrl(settings.publicBookingToken)
+    : '';
 
   return (
     <div className="settings-container">
@@ -210,21 +231,30 @@ export function Settings() {
             <div key={key} className="day-config">
               <div className="day-header">
                 <input
+                  id={`day-${key}-enabled`}
                   type="checkbox"
                   checked={settings.workingHours[key]?.enabled || false}
                   onChange={(e) => updateDayConfig(key, 'enabled', e.target.checked)}
                 />
-                <label>{label}</label>
+                <label htmlFor={`day-${key}-enabled`}>{label}</label>
               </div>
               {settings.workingHours[key]?.enabled && (
                 <div className="time-inputs">
+                  <label className="sr-only" htmlFor={`day-${key}-start`}>
+                    Hora de inicio {label}
+                  </label>
                   <input
+                    id={`day-${key}-start`}
                     type="time"
                     value={settings.workingHours[key]?.startTime || '09:00'}
                     onChange={(e) => updateDayConfig(key, 'startTime', e.target.value)}
                   />
-                  <span>a</span>
+                  <span aria-hidden="true">a</span>
+                  <label className="sr-only" htmlFor={`day-${key}-end`}>
+                    Hora de fin {label}
+                  </label>
                   <input
+                    id={`day-${key}-end`}
                     type="time"
                     value={settings.workingHours[key]?.endTime || '18:00'}
                     onChange={(e) => updateDayConfig(key, 'endTime', e.target.value)}
@@ -255,7 +285,12 @@ export function Settings() {
             <label htmlFor="booking-url">URL para compartir con clientes:</label>
             <div className="url-display">
               <input id="booking-url" type="text" value={bookingUrl} readOnly className="url-input" />
-              <button type="button" className="button" onClick={copyBookingUrl}>
+              <button
+                type="button"
+                className="button"
+                onClick={copyBookingUrl}
+                aria-label="Copiar link de reservas"
+              >
                 {copied ? <FiCheck /> : <FiCopy />}
                 {copied ? 'Copiado' : 'Copiar'}
               </button>

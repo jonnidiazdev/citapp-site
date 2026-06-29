@@ -12,10 +12,13 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { bookingSlotsService } from './bookingSlotsService';
 import { omitUndefinedFields } from '../utils/firestore';
 import type {
   Appointment,
+  AppointmentStatus,
   CreateAppointmentInput,
+  OccupiedSlot,
   PublicAppointmentInput,
 } from '../types';
 
@@ -43,6 +46,9 @@ class AppointmentService {
   }
 
   async getAppointmentsByUserAndDate(userId: string, date: string): Promise<Appointment[]> {
+    const user = auth.currentUser;
+    if (!user) throw new Error('User not authenticated');
+
     const q = query(
       collection(db, this.collectionName),
       where('userId', '==', userId),
@@ -65,6 +71,13 @@ class AppointmentService {
 
     const docRef = await addDoc(collection(db, this.collectionName), appointmentData);
 
+    if (appointment.status !== 'cancelled' && appointment.status !== 'absent') {
+      await bookingSlotsService.addOccupiedSlot(user.uid, appointment.date, {
+        startTime: appointment.startTime,
+        endTime: appointment.endTime,
+      });
+    }
+
     return {
       ...appointment,
       userId: user.uid,
@@ -80,6 +93,11 @@ class AppointmentService {
     });
 
     const docRef = await addDoc(collection(db, this.collectionName), appointmentData);
+
+    await bookingSlotsService.addOccupiedSlot(data.userId, data.date, {
+      startTime: data.startTime,
+      endTime: data.endTime,
+    });
 
     return {
       ...data,
@@ -106,10 +124,14 @@ class AppointmentService {
       throw new Error('Appointment not found or access denied');
     }
 
+    const existing = this.convertDocToAppointment(snapshot.docs[0]);
+
     await updateDoc(appointmentRef, {
       ...updates,
       updatedAt: Timestamp.now(),
     });
+
+    await this.syncSlotAfterUpdate(existing, updates);
 
     const updated = (
       await getDocs(query(collection(db, this.collectionName), where('__name__', '==', id)))
@@ -133,7 +155,15 @@ class AppointmentService {
       throw new Error('Appointment not found or access denied');
     }
 
+    const existing = this.convertDocToAppointment(snapshot.docs[0]);
     await deleteDoc(doc(db, this.collectionName, id));
+
+    if (existing.status !== 'cancelled' && existing.status !== 'absent') {
+      await bookingSlotsService.removeOccupiedSlot(existing.userId, existing.date, {
+        startTime: existing.startTime,
+        endTime: existing.endTime,
+      });
+    }
   }
 
   convertDocToAppointment(docSnap: QueryDocumentSnapshot): Appointment {
@@ -144,6 +174,47 @@ class AppointmentService {
       userId: data.userId ?? '',
       createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
     } as Appointment;
+  }
+
+  private async syncSlotAfterUpdate(
+    existing: Appointment,
+    updates: Partial<Appointment>
+  ): Promise<void> {
+    const previousSlot: OccupiedSlot = {
+      startTime: existing.startTime,
+      endTime: existing.endTime,
+    };
+    const nextDate = updates.date ?? existing.date;
+    const nextStart = updates.startTime ?? existing.startTime;
+    const nextEnd = updates.endTime ?? existing.endTime;
+    const nextStatus = (updates.status ?? existing.status) as AppointmentStatus;
+    const previousActive = existing.status !== 'cancelled' && existing.status !== 'absent';
+    const nextActive = nextStatus !== 'cancelled' && nextStatus !== 'absent';
+    const nextSlot: OccupiedSlot = { startTime: nextStart, endTime: nextEnd };
+
+    const scheduleChanged =
+      existing.date !== nextDate ||
+      existing.startTime !== nextStart ||
+      existing.endTime !== nextEnd;
+
+    if (scheduleChanged) {
+      if (previousActive) {
+        await bookingSlotsService.removeOccupiedSlot(existing.userId, existing.date, previousSlot);
+      }
+      if (nextActive) {
+        await bookingSlotsService.addOccupiedSlot(existing.userId, nextDate, nextSlot);
+      }
+      return;
+    }
+
+    if (previousActive && !nextActive) {
+      await bookingSlotsService.removeOccupiedSlot(existing.userId, existing.date, previousSlot);
+      return;
+    }
+
+    if (!previousActive && nextActive) {
+      await bookingSlotsService.addOccupiedSlot(existing.userId, nextDate, nextSlot);
+    }
   }
 }
 

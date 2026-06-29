@@ -1,14 +1,15 @@
 import { useActionState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useFormStatus } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import { authService } from '../services/authService';
+import { isRegistrationAllowed } from '../utils/featureFlags';
 import '../styles/auth.css';
 
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending}>
+    <button type="submit" disabled={pending} aria-busy={pending}>
       {pending ? 'Cargando...' : label}
     </button>
   );
@@ -17,6 +18,10 @@ function SubmitButton({ label }: { label: string }) {
 export function Register() {
   const navigate = useNavigate();
   const register = useAuthStore((state) => state.register);
+
+  if (!isRegistrationAllowed()) {
+    return <Navigate to="/login" replace />;
+  }
 
   const [state, formAction] = useActionState(
     async (_prev: { error?: string } | null, formData: FormData) => {
@@ -49,11 +54,23 @@ export function Register() {
 
   return (
     <div className="auth-container">
+      <aside className="auth-panel" aria-hidden="true">
+        <div className="auth-panel-inner">
+          <p className="auth-panel-eyebrow">CitApp</p>
+          <h2>Empezá en minutos</h2>
+          <p>Creá tu cuenta, configurá tu negocio y compartí el link de reservas con tus clientes.</p>
+        </div>
+      </aside>
+      <div className="auth-main">
       <div className="auth-form">
         <h1>CitApp</h1>
         <h2>Crear Cuenta</h2>
 
-        {state?.error && <div className="error-message">{state.error}</div>}
+        {state?.error && (
+          <div className="error-message" role="alert" aria-live="assertive">
+            {state.error}
+          </div>
+        )}
 
         <form action={formAction}>
           <div className="form-group">
@@ -84,6 +101,7 @@ export function Register() {
         <p className="auth-link">
           ¿Ya tienes cuenta? <Link to="/login">Iniciar Sesión</Link>
         </p>
+      </div>
       </div>
     </div>
   );

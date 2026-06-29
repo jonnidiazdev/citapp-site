@@ -1,9 +1,8 @@
-import React from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { authService } from '../services/authService';
 
-export const Layout: React.FC = () => {
+export function Layout() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const navigate = useNavigate();
@@ -15,14 +14,22 @@ export const Layout: React.FC = () => {
   };
 
   return (
-    <div>
+    <div className="app-shell">
       {user && (
-        <nav className="navbar">
+        <nav className="navbar" aria-label="Navegación principal">
           <div className="navbar-content">
-            <h1>CitApp</h1>
+            <Link to="/admin/dashboard" className="navbar-brand">
+              <strong>CitApp</strong>
+              <span>Panel de gestión</span>
+            </Link>
             <div className="navbar-actions">
-              <span>{user.name}</span>
-              <button onClick={handleLogout}>Cerrar Sesión</button>
+              <span className="navbar-user">{user.name}</span>
+              <button type="button" className="button secondary" onClick={() => navigate('/admin/settings')}>
+                Configuración
+              </button>
+              <button type="button" className="button ghost" onClick={handleLogout}>
+                Cerrar sesión
+              </button>
             </div>
           </div>
         </nav>
@@ -32,4 +39,4 @@ export const Layout: React.FC = () => {
       </main>
     </div>
   );
-};
+}

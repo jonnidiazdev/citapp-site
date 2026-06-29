@@ -74,6 +74,34 @@ export interface BusinessSettings {
   updatedAt: string;
 }
 
+/** Public-safe projection stored in publicProfiles/{token} */
+export interface PublicBusinessProfile {
+  userId: string;
+  businessName: string;
+  businessDescription?: string;
+  workingHours: Record<string, DayWorkingHours>;
+  appointmentDuration: number;
+  breakTime: number;
+  dailySessionLimit: number;
+  allowHolidayAppointments: boolean;
+  publicBookingEnabled: boolean;
+}
+
+export interface OccupiedSlot {
+  startTime: string;
+  endTime: string;
+}
+
+export interface DayOccupiedSlots {
+  occupied: OccupiedSlot[];
+}
+
+/** Fields required by slotsService */
+export type SlotGenerationSettings = Pick<
+  PublicBusinessProfile,
+  'workingHours' | 'appointmentDuration' | 'breakTime' | 'dailySessionLimit'
+>;
+
 // Legacy types — used by businessStore (TODO: wire or remove)
 export interface TimeRange {
   startTime: string;

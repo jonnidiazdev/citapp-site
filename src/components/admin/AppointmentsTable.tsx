@@ -43,7 +43,9 @@ export function AppointmentsTable({
     return (
       <div className="appointments-section">
         <h2>Turnos del {formattedDate}</h2>
-        <p className="empty-message">Cargando turnos...</p>
+        <p className="empty-message" role="status" aria-live="polite">
+          Cargando turnos...
+        </p>
       </div>
     );
   }
@@ -61,7 +63,12 @@ export function AppointmentsTable({
     <div className="appointments-section">
       <h2>
         Turnos del {formattedDate}
-        {isPending && <span className="status-updating"> Actualizando...</span>}
+        {isPending && (
+          <span className="status-updating" aria-live="polite">
+            {' '}
+            Actualizando...
+          </span>
+        )}
       </h2>
       <div className="appointments-table">
         <table>

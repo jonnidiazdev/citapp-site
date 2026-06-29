@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useAuthStore } from '../store/authStore';
 import { businessSettingsService } from '../services/businessSettingsService';
+import { bookingSlotsService } from '../services/bookingSlotsService';
 import { useAppointments } from '../hooks/useAppointments';
 import { useMonthHolidays } from '../hooks/useMonthHolidays';
 import { calculateAppointmentStats, getAppointmentsForDate } from '../utils/appointmentStats';
@@ -19,6 +20,7 @@ import {
   type ManualAppointmentForm,
 } from '../components/admin/ManualAppointmentModal';
 import type { Appointment, AppointmentStatus } from '../types';
+import { FiSettings } from 'react-icons/fi';
 import '../styles/admin.css';
 
 const defaultManualForm = (date: string): ManualAppointmentForm => ({
@@ -43,6 +45,7 @@ export function AdminDashboard() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [bookingUrl, setBookingUrl] = useState('');
+  const [publicBookingEnabled, setPublicBookingEnabled] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
@@ -60,10 +63,24 @@ export function AdminDashboard() {
   const { isHoliday } = useMonthHolidays(currentMonth);
 
   useEffect(() => {
-    if (user) {
-      setBookingUrl(businessSettingsService.getPublicBookingUrl(user.id));
-    }
+    if (!user) return;
+    businessSettingsService.getSettings().then((settings) => {
+      if (settings?.publicBookingEnabled && settings.publicBookingToken) {
+        setPublicBookingEnabled(true);
+        setBookingUrl(businessSettingsService.getPublicBookingUrl(settings.publicBookingToken));
+      } else {
+        setPublicBookingEnabled(false);
+        setBookingUrl('');
+      }
+    });
   }, [user]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    bookingSlotsService.syncAllFromAppointments(user.id, appointments).catch(() => {
+      // Best-effort migration sync for existing appointments.
+    });
+  }, [user, loading, appointments]);
 
   useEffect(() => {
     setManualForm((prev) => ({ ...prev, date: selectedDate }));
@@ -219,13 +236,30 @@ export function AdminDashboard() {
             + Carga Manual
           </button>
           <button type="button" className="button admin-action-btn" onClick={() => navigate('/admin/settings')}>
-            ⚙️ Configuración
+            <FiSettings aria-hidden="true" />
+            Configuración
           </button>
         </div>
       </div>
 
       <AdminStats stats={stats} />
-      <BookingUrlBanner bookingUrl={bookingUrl} copied={copied} onCopy={copyBookingUrl} />
+      {publicBookingEnabled && bookingUrl ? (
+        <BookingUrlBanner bookingUrl={bookingUrl} copied={copied} onCopy={copyBookingUrl} />
+      ) : (
+        <div className="booking-url-banner booking-url-disabled-hint">
+          <p>
+            Las reservas públicas están desactivadas. Activá el link en{' '}
+            <button
+              type="button"
+              className="booking-url-settings-link"
+              onClick={() => navigate('/admin/settings')}
+            >
+              Configuración
+            </button>
+            .
+          </p>
+        </div>
+      )}
 
       <div className="admin-content">
         <AdminCalendar

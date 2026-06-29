@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { businessSettingsService } from '../services/businessSettingsService';
+import { publicProfileService } from '../services/publicProfileService';
 import type { BusinessSettings } from '../types';
 
 export function useBusinessSettings(autoLoad = true) {
@@ -35,6 +36,6 @@ export function useBusinessSettings(autoLoad = true) {
   return { settings, setSettings, loading, error, load, save };
 }
 
-export async function loadPublicBusinessSettings(userId: string) {
-  return businessSettingsService.getSettingsByUserId(userId);
+export async function loadPublicBusinessSettings(token: string) {
+  return publicProfileService.getByToken(token);
 }

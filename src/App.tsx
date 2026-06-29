@@ -10,6 +10,7 @@ import { Home } from './pages/Home';
 import { Login } from './components/Login';
 import { Register } from './components/Register';
 import { PublicBooking } from './pages/PublicBooking';
+import { isRegistrationAllowed } from './utils/featureFlags';
 
 const AdminDashboard = lazy(() =>
   import('./pages/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
@@ -31,8 +32,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/booking/:userId" element={<PublicBooking />} />
+              {isRegistrationAllowed() && <Route path="/register" element={<Register />} />}
+              <Route path="/booking/:token" element={<PublicBooking />} />
 
               <Route element={<Layout />}>
                 <Route
